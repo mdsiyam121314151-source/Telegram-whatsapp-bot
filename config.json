@@ -1,10 +1,37 @@
+
 {
+  "metadata": {
+    "version": "2.0.0",
+    "author": "SIYAM HASAN"
+  },
   "users": {
     "root": {
-      "primary": ""
+      "primary": "8801608279461"
     },
-    "13438827135": {
-      "sudoList": [],
+    "8801608279461": {
+      "adminList": [],
+      "adminUidList": [],
+
+      "ownerList": [
+        "8801789138157"
+      ],
+      "ownerUidList": [
+        "15518304043117"
+      ],
+
+      "whiteList": [],
+      "whiteListUidList": [],
+
+      "sudoList": [
+        "8801789138157",
+        "15518304043117"
+      ],
+      "sudoUidList": [
+        "15518304043117"
+      ],
+
+      "adminOnly": false,
+      "whiteListMode": false,
       "tagAudioPath": "tag.mp3",
       "antilink": false,
       "response": true,
