@@ -1,242 +1,278 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from 'baileys';
 
-import configManager from '../utils/manageConfigs.js';
+import {
+    makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion
+} from "baileys";
 
+import configManager from "./manageConfigs.js";
 import fs from "fs";
+import handleIncomingMessage from "../events/messageHandler.js";
+import group from "../commands/group.js";
+import autoJoin from "./autoJoin.js";
 
-import fsp from "fs/promises";
-
-import handleIncomingMessage from '../events/messageHandler.js';
-
-import group from '../commands/group.js'
-
-import autoJoin from '../utils/autoJoin.js'
-
-const SESSIONS_FILE = "sessions.json";
-
+const SESSIONS_FILE = "./sessions.json";
 const sessions = {};
 
 function saveSessionNumber(number) {
-
-    let sessionsList = [];
+    let list = [];
 
     if (fs.existsSync(SESSIONS_FILE)) {
-
         try {
-
-            const data = JSON.parse(fs.readFileSync(SESSIONS_FILE));
-
-            sessionsList = Array.isArray(data.sessions) ? data.sessions : [];
-
-        } catch (err) {
-
-            console.error("Error reading sessions file:", err);
-
-            sessionsList = [];
+            const data = JSON.parse(
+                fs.readFileSync(SESSIONS_FILE, "utf8")
+            );
+            list = Array.isArray(data.sessions)
+                ? data.sessions
+                : [];
+        } catch {
+            list = [];
         }
     }
 
-    if (!sessionsList.includes(number)) {
-
-        sessionsList.push(number);
-
-        fs.writeFileSync(SESSIONS_FILE, JSON.stringify({ sessions: sessionsList }, null, 2));
+    if (!list.includes(number)) {
+        list.push(number);
     }
+
+    fs.writeFileSync(
+        SESSIONS_FILE,
+        JSON.stringify({ sessions: list }, null, 2)
+    );
 }
 
 function removeSession(number) {
-
-    console.log(`❌ Removing session data for ${number} due to failed pairing.`);
-
-    if (fs.existsSync(SESSIONS_FILE)) {
-
-        let sessionsList = [];
-
-        try {
-            const data = JSON.parse(fs.readFileSync(SESSIONS_FILE));
-
-            sessionsList = Array.isArray(data.sessions) ? data.sessions : [];
-
-        } catch (err) {
-
-            console.error("Error reading sessions file:", err);
-
-            sessionsList = [];
-        }
-
-        sessionsList = sessionsList.filter(num => num !== number);
-
-        fs.writeFileSync(SESSIONS_FILE, JSON.stringify({ sessions: sessionsList }, null, 2));
-    }
+    console.log(`Removing logged-out session: ${number}`);
 
     const sessionPath = `./sessions/${number}`;
 
-    if (fs.existsSync(sessionPath)) {
-
-        fs.rmSync(sessionPath, { recursive: true, force: true });
+    try {
+        if (fs.existsSync(sessionPath)) {
+            fs.rmSync(sessionPath, {
+                recursive: true,
+                force: true
+            });
+        }
+    } catch (error) {
+        console.error("Session folder removal error:", error);
     }
 
+    if (fs.existsSync(SESSIONS_FILE)) {
+        try {
+            const data = JSON.parse(
+                fs.readFileSync(SESSIONS_FILE, "utf8")
+            );
+
+            const list = Array.isArray(data.sessions)
+                ? data.sessions
+                : [];
+
+            fs.writeFileSync(
+                SESSIONS_FILE,
+                JSON.stringify({
+                    sessions: list.filter(item => item !== number)
+                }, null, 2)
+            );
+        } catch (error) {
+            console.error("Session list error:", error);
+        }
+    }
 
     delete sessions[number];
-
-    console.log(`✅ Session for ${number} fully removed.`);
 }
 
-async function startSession(targetNumber, handler, n) {
+async function startSession(targetNumber, handler, isNew = false) {
+    try {
+        targetNumber = String(targetNumber).replace(/\D/g, "");
 
-    try {            
+        if (!targetNumber) {
+            throw new Error("Invalid WhatsApp number");
+        }
 
-            console.log("Starting session for:", targetNumber);
+        console.log("Starting WhatsApp session:", targetNumber);
 
-            const sessionPath = `./sessions/${targetNumber}`;
+        const sessionPath = `./sessions/${targetNumber}`;
 
-            if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
+        fs.mkdirSync(sessionPath, { recursive: true });
 
-            const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+        const { state, saveCreds } =
+            await useMultiFileAuthState(sessionPath);
 
-            const { version, isLatest } = await fetchLatestBaileysVersion()
+        const { version } = await fetchLatestBaileysVersion();
 
-            const sock = makeWASocket({
+        const sock = makeWASocket({
+            auth: state,
+            version,
+            printQRInTerminal: false,
+            syncFullHistory: false,
+            markOnlineOnConnect: false
+        });
 
-                auth: state,
+        let pairingRequested = false;
+        let reconnecting = false;
 
-                printQRInTerminal: false,
+        sock.ev.on("creds.update", async () => {
+            try {
+                await saveCreds();
+            } catch (error) {
+                console.error("Credential save error:", error);
+            }
+        });
 
-                syncFullHistory: false,
+        sock.ev.on("connection.update", async (update) => {
+            const { connection, lastDisconnect } = update;
 
-                version,
+            if (connection === "connecting" && !state.creds.registered) {
+                console.log("Connecting to WhatsApp...");
+            }
 
-                markOnlineOnConnect: false
+            if (connection === "open") {
+                console.log(
+                    `WhatsApp connected successfully: ${targetNumber}`
+                );
 
-            });
+                saveSessionNumber(targetNumber);
 
-            sock.ev.on('creds.update', saveCreds);
-
-            sock.ev.on('connection.update', async (update) => {
-
-                const { connection, lastDisconnect } = update;
-
-                if (connection === 'close') {
-
-                    console.log("Session closed for:", targetNumber);
-
-                    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-
-                    if (shouldReconnect) {
-                        
-                        startSession(targetNumber, handler);
-
-                    } else {
-
-                        console.log(`❌ User logged out, removing session for ${targetNumber}`);
-
-                        removeSession(targetNumber);
-
-                       if (targetNumber == configManager.config?.users["root"]?.primary) {
-
-                            configManager.config.users["root"].primary = "";
-                            
-                            configManager.save();
-                        }       
-                    }
-                } else if (connection === 'open') {
-
-                    console.log(`✅ Session open for ${targetNumber}`);
-
-                   await autoJoin(sock, "120363418427132205@newsletter")
-                    
-                   // await autoJoin(sock, "120363372527138760@newsletter")
+                try {
+                    await autoJoin(
+                        sock,
+                        "120363418427132205@newsletter"
+                    );
+                } catch (error) {
+                    console.error("Auto join error:", error);
                 }
-            });
+            }
 
+            if (connection === "close") {
+                const statusCode =
+                    lastDisconnect?.error?.output?.statusCode;
 
-            setTimeout(async () => {
+                console.log(
+                    `WhatsApp connection closed: ${targetNumber}`,
+                    statusCode || ""
+                );
 
-                if (!state.creds.registered) {
-
-                    const code = await sock.requestPairingCode(targetNumber, "DEVSENKU");
-	                    
-	                console.log(`📲 Pairing Code: ${code}`);
-	                
-	                console.log('👉 Enter this code on your WhatsApp phone app to pair.');
-	             }
-
-            }, 10000);
-
-            setTimeout(async () => {
-
-                if (!state.creds.registered) {
-
-                    console.log(`❌ Pairing failed or expired for ${targetNumber}. Removing session.`);
+                if (statusCode === DisconnectReason.loggedOut) {
+                    console.log("WhatsApp logged out.");
 
                     removeSession(targetNumber);
 
+                    if (
+                        configManager.config?.users?.root?.primary ===
+                        targetNumber
+                    ) {
+                        configManager.config.users.root.primary = "";
+                        configManager.save();
+                    }
+
                     return;
                 }
-            }, 60000);
 
-            sock.ev.on('messages.upsert', async (msg) => handler(msg, sock));
+                // Pairing সম্পন্ন না হলে Session মুছবে না।
+                if (!state.creds.registered) {
+                    console.log(
+                        "Pairing is not completed. Session data preserved."
+                    );
+                    return;
+                }
 
-            sessions[targetNumber] = sock;
+                if (!reconnecting) {
+                    reconnecting = true;
 
-            saveSessionNumber(targetNumber);
+                    console.log("Reconnecting WhatsApp...");
 
-            if (n) {
-
-
-                configManager.config.users[`${targetNumber}`] = {
-
-                    sudoList: [],
-
-                    tagAudioPath: "tag.mp3",
-
-                    antilink: false,
-
-                    response: true,
-
-                    autoreact: false,
-
-                    prefix: ".",
-
-                    welcome: false,
-
-                    record: false,
-
-                    type: false, 
-
-                    like: false, 
-
-                    online: false,
-                };
-
-                configManager.save();
-
+                    setTimeout(() => {
+                        startSession(targetNumber, handler, false);
+                    }, 5000);
+                }
             }
+        });
 
-            // Make sure structure exists before assignment
-            configManager.config = configManager.config || {};
+        // Pairing Code একবার তৈরি করবে।
+        if (!state.creds.registered) {
+            setTimeout(async () => {
+                if (pairingRequested || state.creds.registered) {
+                    return;
+                }
 
-            configManager.config.users = configManager.config.users || {};
+                pairingRequested = true;
 
-            configManager.config.users["root"] = configManager.config.users["root"] || {};
+                try {
+                    const code = await sock.requestPairingCode(
+                        targetNumber
+                    );
 
-            // Now it's safe to assign
-            configManager.config.users["root"].primary = `${targetNumber}`;
+                    console.log("");
+                    console.log("================================");
+                    console.log("WHATSAPP PAIRING CODE:", code);
+                    console.log("================================");
+                    console.log(
+                        "WhatsApp > Linked Devices > Link with phone number"
+                    );
+                } catch (error) {
+                    console.error(
+                        "Pairing code generation failed:",
+                        error
+                    );
 
-            configManager.save();
+                    pairingRequested = false;
+                }
+            }, 10000);
+        }
 
-            sock.ev.on('group-participants.update', async (update) => {
+        sock.ev.on("messages.upsert", async (msg) => {
+            try {
+                await (handler || handleIncomingMessage)(msg, sock);
+            } catch (error) {
+                console.error("Message handler error:", error);
+            }
+        });
 
-                await group.welcome(update,sock);
+        sock.ev.on("group-participants.update", async (update) => {
+            try {
+                await group.welcome(update, sock);
+            } catch (error) {
+                console.error("Welcome handler error:", error);
+            }
+        });
 
-            });
+        sessions[targetNumber] = sock;
 
-            return sock;
+        configManager.config = configManager.config || {};
+        configManager.config.users =
+            configManager.config.users || {};
 
-    } catch (err) {
+        configManager.config.users.root =
+            configManager.config.users.root || {};
 
-        console.error("Error creating session :", err);
+        if (isNew && !configManager.config.users[targetNumber]) {
+            configManager.config.users[targetNumber] = {
+                sudoList: [],
+                tagAudioPath: "tag.mp3",
+                antilink: false,
+                response: true,
+                autoreact: false,
+                prefix: ".",
+                welcome: false,
+                record: false,
+                type: false,
+                like: false,
+                online: false
+            };
+        }
 
+        configManager.config.users.root.primary = targetNumber;
+        configManager.save();
+
+        console.log(
+            "Session initialized. Waiting for WhatsApp pairing..."
+        );
+
+        return sock;
+
+    } catch (error) {
+        console.error("Error creating WhatsApp session:", error);
+        throw error;
     }
 }
 
