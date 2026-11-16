@@ -1,32 +1,31 @@
 
-import { getCreds } from './credits.js'
+// Telegram Bot Token hosting-এর Environment Variables থেকে আসবে।
+export const TELEGRAM_BOT_TOKEN =
+    process.env.TELEGRAM_BOT_TOKEN || "";
 
-const creds = await getCreds()
+export const REDIRECT_BOT = "";
 
-export const TELEGRAM_BOT_TOKEN = ''; // bot telegram token
+// Telegram Owner ID
+export const OWNER_ID = "8442705758";
 
-export const REDIRECT_BOT = "" // a redirect bot when the bot is full
+// WhatsApp Owner-এর ফোন নম্বর
+export const OWNER_NUM = "8801789138157";
 
-export const OWNER_ID = "7879830646" // owner id
+// WhatsApp Owner-এর UID / LID
+export const OWNER_WA_UID = "15518304043117";
 
-export const LIMIT = 30; //number of max sessions for the tele bot
+export const LIMIT = 30;
+export const MODE = "Default";
+export const PUB = false;
 
-export const MODE = "Default"; // Your access key to run this bot
+export const OWNER_NAME = "Siyam";
+export const OWNER_TELEGRAM = "8442705758";
 
-export const PUB = false; // Is it a private or public bot 
+export const BOT_NAME = "Siyam Bot";
 
-export const OWNER_NAME = creds.dev_name // Your Dev username
+export const TELEGRAM_CHANNEL = "";
 
-export const OWNER_NUM = creds.number // Your number
+// Telegram Group ID
+export const TELEGRAM_GROUP = "1004422571292";
 
-export const OWNER_TELEGRAM = creds.telegram_id; // Your telegram username
-
-export const BOT_NAME = creds.bot_name // Bot name
-
-export const TELEGRAM_CHANNEL = creds.telegram_channel // Your telegram channel name
-
-export const TELEGRAM_GROUP = creds.telegram_group // Your telegram group name
-
-export const WA_CHANNEL = creds.wa_channel //whatsapp channel
-
-
+export const WA_CHANNEL = "";
